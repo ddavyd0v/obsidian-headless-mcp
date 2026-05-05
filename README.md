@@ -124,21 +124,9 @@ curl -X POST https://obsidian-api.yourdomain.com/api/file/notes%2Fnew.md \
 
 ### Using with Claude Code
 
-The MCP server accepts the API token via **two methods** — pick whichever your client supports:
+For local clients (Claude Code, MCP Inspector, curl) you can use the static
+`API_TOKEN` as a bearer:
 
-**1. Token in URL path** (legacy):
-```json
-{
-  "mcpServers": {
-    "obsidian": {
-      "url": "https://mcp.yourdomain.com/<API_TOKEN>",
-      "transport": "http"
-    }
-  }
-}
-```
-
-**2. Authorization header** (recommended):
 ```json
 {
   "mcpServers": {
@@ -153,7 +141,49 @@ The MCP server accepts the API token via **two methods** — pick whichever your
 }
 ```
 
-Then Claude can read/write your notes directly!
+### Using with Claude.ai (custom connector, OAuth 2.1)
+
+The MCP server is its own OAuth 2.1 authorization server. Claude.ai discovers
+the metadata, dynamically registers itself, and prompts you for a password —
+no manual client setup required.
+
+**Setup:**
+
+1. Set `MCP_USER_PASSWORD` in `.env` to a strong secret. This is the password
+   you'll type on the authorization page.
+2. Make sure `DOMAIN` is set so the public URL resolves to
+   `https://mcp.${DOMAIN}`.
+3. Deploy / restart docker compose. Verify the metadata endpoints respond:
+   ```bash
+   curl https://mcp.yourdomain.com/.well-known/oauth-protected-resource
+   curl https://mcp.yourdomain.com/.well-known/oauth-authorization-server
+   ```
+4. In Claude.ai → **Settings → Connectors → Add custom connector**, paste
+   `https://mcp.yourdomain.com` as the server URL.
+
+**What you'll see during the OAuth flow:**
+
+1. Claude.ai opens your browser to `https://mcp.yourdomain.com/authorize?...`.
+2. The server renders a single password prompt.
+3. You enter `MCP_USER_PASSWORD`. After 5 wrong attempts the form locks out
+   with exponential backoff (5s, 10s, 20s, …).
+4. The server redirects back to Claude.ai with an authorization code.
+5. Claude.ai exchanges the code for an access token (1 hour) and a refresh
+   token (14 days). It refreshes silently from then on.
+
+**Environment variables for OAuth:**
+
+| Var | Default | Purpose |
+|---|---|---|
+| `MCP_AUTH_ENABLED` | `true` | Set `false` to disable OAuth and fall back to `API_TOKEN` only |
+| `MCP_USER_PASSWORD` | _(required)_ | The password the user types on `/authorize` |
+| `MCP_TOKEN_TTL_SECONDS` | `3600` | Access-token lifetime |
+| `MCP_REFRESH_TTL_DAYS` | `14` | Refresh-token lifetime |
+| `MCP_PUBLIC_URL` | derived from `DOMAIN` | Used to construct OAuth metadata; required when auth is enabled |
+| `MCP_OAUTH_DB_PATH` | `/data/oauth.db` | SQLite DB path inside the container (mounted on the `oauth-data` volume) |
+
+The static `API_TOKEN` continues to work as a bearer alongside OAuth, so
+local Claude Code / curl setups don't need to change.
 
 ## Troubleshooting
 
@@ -176,8 +206,9 @@ Then Claude can read/write your notes directly!
 
 ⚠️ **Important:**
 - Keep `.env` file secure (never commit to Git)
-- Use strong Obsidian passwords
-- The API doesn't have built-in auth—consider adding OAuth or API keys in production
+- Use strong Obsidian passwords and a strong `MCP_USER_PASSWORD`
+- OAuth 2.1 with PKCE is enforced by default for the MCP server (Claude.ai connector flow)
+- The static `API_TOKEN` is also accepted as a bearer for local clients
 - Obsidian Sync provides end-to-end encryption
 
 ## Files Reference
