@@ -68,15 +68,26 @@ services:
   obsidian-mcp:
     image: python:3.12-slim
     restart: unless-stopped
+    working_dir: /app
     depends_on:
       - obsidian-api
-    command: python -c "import urllib.request, subprocess, sys; subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', 'mcp', 'httpx', 'uvicorn'], check=True); urllib.request.urlretrieve('https://raw.githubusercontent.com/seb7152/obsidian-headless-mcp/main/obsidian_mcp.py', '/tmp/obsidian_mcp.py'); exec(open('/tmp/obsidian_mcp.py').read())"
+    volumes:
+      - ./obsidian_mcp.py:/app/obsidian_mcp.py:ro
+      - ./oauth:/app/oauth:ro
+      - oauth-data:/data
+    command: bash -c "pip install --quiet mcp httpx uvicorn aiosqlite starlette python-multipart && python obsidian_mcp.py"
     expose:
       - "3001"
     environment:
       - OBSIDIAN_API_URL=http://obsidian-api:3000/api
       - API_TOKEN=${API_TOKEN}
       - PORT=3001
+      - MCP_AUTH_ENABLED=${MCP_AUTH_ENABLED:-true}
+      - MCP_USER_PASSWORD=${MCP_USER_PASSWORD}
+      - MCP_PUBLIC_URL=https://mcp.${DOMAIN}
+      - MCP_TOKEN_TTL_SECONDS=${MCP_TOKEN_TTL_SECONDS:-3600}
+      - MCP_REFRESH_TTL_DAYS=${MCP_REFRESH_TTL_DAYS:-14}
+      - MCP_OAUTH_DB_PATH=/data/oauth.db
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.obsidian-mcp.rule=Host(`mcp.${DOMAIN}`)"
@@ -88,3 +99,4 @@ volumes:
   traefik-letsencrypt:
   obsidian-cache:
   sqlite-data:
+  oauth-data:
