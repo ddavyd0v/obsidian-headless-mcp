@@ -10,6 +10,8 @@ vault/
 node_modules/
 __pycache__/
 *.pyc
+.venv/
+.pytest_cache/
 
 # Docker
 .docker/
