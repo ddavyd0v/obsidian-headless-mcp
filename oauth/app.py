@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
@@ -17,6 +19,11 @@ async def build_app(mcp_asgi_app, cfg: OAuthConfig | None = None):
     (e.g. /mcp) is preserved. OAuth + .well-known routes are added alongside.
     The whole tree is wrapped in OAuthMiddleware which enforces bearer auth
     on every non-public path.
+
+    FastMCP's streamable HTTP session manager needs its lifespan to run for
+    the task group to be initialized, but Starlette's Mount does not propagate
+    lifespan events to mounted sub-applications. Chain the inner lifespan
+    into the parent so MCP requests work after startup.
     """
     cfg = cfg or load_config()
     storage = Storage(cfg.db_path)
@@ -44,5 +51,11 @@ async def build_app(mcp_asgi_app, cfg: OAuthConfig | None = None):
         Route("/token", token, methods=["POST"]),
         Mount("/", app=mcp_asgi_app),
     ]
-    inner = Starlette(routes=routes)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        async with mcp_asgi_app.router.lifespan_context(mcp_asgi_app):
+            yield
+
+    inner = Starlette(routes=routes, lifespan=lifespan)
     return OAuthMiddleware(inner, cfg, storage), storage, cfg
